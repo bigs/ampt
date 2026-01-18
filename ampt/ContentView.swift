@@ -7,53 +7,232 @@
 
 import SwiftUI
 import SwiftData
+import UniformTypeIdentifiers
+import AppKit
 
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
-    @Query private var items: [Item]
+    @Query(sort: \Track.order) private var tracks: [Track]
+    @State private var playerState = PlayerState()
+    @State private var isDropTargeted = false
+    @State private var selectedTrackIDs: Set<Track.ID> = []
+
+    private let validExtensions: Set<String> = ["mp3", "flac", "m4a", "aac", "wav", "aiff", "alac"]
 
     var body: some View {
-        NavigationSplitView {
-            List {
-                ForEach(items) { item in
-                    NavigationLink {
-                        Text("Item at \(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))")
-                    } label: {
-                        Text(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))
-                    }
-                }
-                .onDelete(perform: deleteItems)
-            }
-            .navigationSplitViewColumnWidth(min: 180, ideal: 200)
-            .toolbar {
-                ToolbarItem {
-                    Button(action: addItem) {
-                        Label("Add Item", systemImage: "plus")
-                    }
-                }
-            }
-        } detail: {
-            Text("Select an item")
+        VStack(spacing: 0) {
+            PlayerControlsView(state: playerState)
+            Divider()
+            playlistView
+        }
+        .frame(minWidth: 280, idealWidth: 320, minHeight: 300)
+        .overlay { dropOverlay }
+        .toolbar { toolbarContent }
+        .dropDestination(for: URL.self) { urls, _ in
+            addURLs(urls)
+            return true
+        } isTargeted: { targeted in
+            isDropTargeted = targeted
+        }
+        .onChange(of: tracks) { _, newTracks in
+            playerState.updatePlaylist(newTracks)
+        }
+        .onAppear {
+            cleanupInvalidTracks()
+            playerState.updatePlaylist(tracks)
         }
     }
 
-    private func addItem() {
-        withAnimation {
-            let newItem = Item(timestamp: Date())
-            modelContext.insert(newItem)
+    @ViewBuilder
+    private var playlistView: some View {
+        List(selection: $selectedTrackIDs) {
+            ForEach(Array(tracks.enumerated()), id: \.element.id) { index, track in
+                let isCurrentTrack = playerState.currentTrack?.id == track.id
+
+                TrackRow(track: track, isCurrentTrack: isCurrentTrack)
+                    .tag(track.id)
+                    .contextMenu {
+                        Button("Play") {
+                            playerState.play(track: track, at: index)
+                        }
+                        Divider()
+                        Button("Remove", role: .destructive) {
+                            deleteTrack(track)
+                        }
+                    }
+            }
+            .onMove(perform: moveTracks)
+        }
+        .contextMenu(forSelectionType: Track.ID.self) { ids in
+            if ids.isEmpty {
+                // Background context menu
+            } else {
+                Button("Remove \(ids.count == 1 ? "Track" : "\(ids.count) Tracks")", role: .destructive) {
+                    deleteTracksWithIDs(ids)
+                }
+            }
+        } primaryAction: { ids in
+            // Double-click action
+            if let id = ids.first,
+               let index = tracks.firstIndex(where: { $0.id == id }) {
+                playerState.play(track: tracks[index], at: index)
+            }
+        }
+        .onDeleteCommand {
+            deleteTracksWithIDs(selectedTrackIDs)
+        }
+        .overlay {
+            if tracks.isEmpty {
+                ContentUnavailableView {
+                    Label("No Tracks", systemImage: "music.note")
+                } description: {
+                    Text("Drop audio files or click + to add")
+                }
+            }
         }
     }
 
-    private func deleteItems(offsets: IndexSet) {
-        withAnimation {
-            for index in offsets {
-                modelContext.delete(items[index])
+    @ViewBuilder
+    private var dropOverlay: some View {
+        if isDropTargeted {
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.accentColor, lineWidth: 3)
+                .padding(4)
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItem {
+            Button(action: openFiles) {
+                Label("Add Files", systemImage: "plus")
             }
+        }
+    }
+
+    private func openFiles() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = true
+        panel.allowedContentTypes = [.audio, .mp3, .aiff, .wav]
+
+        if panel.runModal() == .OK {
+            addURLs(panel.urls)
+        }
+    }
+
+    private func addURLs(_ urls: [URL]) {
+        var allFiles: [URL] = []
+        for url in urls {
+            allFiles.append(contentsOf: collectAudioFiles(from: url))
+        }
+
+        for (index, fileURL) in allFiles.enumerated() {
+            do {
+                let track = try Track(fileURL: fileURL, order: tracks.count + index)
+                modelContext.insert(track)
+            } catch {
+                print("Failed to create bookmark for \(fileURL.lastPathComponent): \(error)")
+            }
+        }
+    }
+
+    private func collectAudioFiles(from url: URL) -> [URL] {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
+            return []
+        }
+
+        if isDirectory.boolValue {
+            guard let enumerator = FileManager.default.enumerator(
+                at: url,
+                includingPropertiesForKeys: [.isRegularFileKey],
+                options: [.skipsHiddenFiles]
+            ) else { return [] }
+
+            var files: [URL] = []
+            for case let fileURL as URL in enumerator {
+                if validExtensions.contains(fileURL.pathExtension.lowercased()) {
+                    files.append(fileURL)
+                }
+            }
+            return files.sorted { $0.lastPathComponent < $1.lastPathComponent }
+        } else {
+            if validExtensions.contains(url.pathExtension.lowercased()) {
+                return [url]
+            }
+            return []
+        }
+    }
+
+    private func deleteTrack(_ track: Track) {
+        if playerState.isCurrentTrack(track) {
+            playerState.clearCurrentTrack()
+        }
+        withAnimation {
+            modelContext.delete(track)
+            try? modelContext.save()
+        }
+    }
+
+    private func deleteTracksWithIDs(_ ids: Set<Track.ID>) {
+        for track in tracks where ids.contains(track.id) {
+            if playerState.isCurrentTrack(track) {
+                playerState.clearCurrentTrack()
+            }
+        }
+        withAnimation {
+            for track in tracks where ids.contains(track.id) {
+                modelContext.delete(track)
+            }
+            selectedTrackIDs.subtract(ids)
+            try? modelContext.save()
+        }
+    }
+
+    private func moveTracks(from source: IndexSet, to destination: Int) {
+        var reorderedTracks = tracks
+        reorderedTracks.move(fromOffsets: source, toOffset: destination)
+        for (index, track) in reorderedTracks.enumerated() {
+            track.order = index
+        }
+    }
+
+    private func cleanupInvalidTracks() {
+        let invalidTracks = tracks.filter { !$0.isValid }
+        if !invalidTracks.isEmpty {
+            for track in invalidTracks {
+                modelContext.delete(track)
+            }
+            print("Removed \(invalidTracks.count) invalid track(s)")
+        }
+    }
+}
+
+struct TrackRow: View {
+    let track: Track
+    let isCurrentTrack: Bool
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(track.title)
+                .lineLimit(1)
+                .truncationMode(.tail)
+
+            Spacer(minLength: 4)
+
+            // Fixed-width playing indicator column
+            Image(systemName: "speaker.wave.2.fill")
+                .foregroundStyle(Color.accentColor)
+                .font(.caption)
+                .frame(width: 16)
+                .opacity(isCurrentTrack ? 1 : 0)
         }
     }
 }
 
 #Preview {
     ContentView()
-        .modelContainer(for: Item.self, inMemory: true)
+        .modelContainer(for: Track.self, inMemory: true)
 }

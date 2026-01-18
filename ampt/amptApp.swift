@@ -12,7 +12,7 @@ import SwiftData
 struct amptApp: App {
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
-            Item.self,
+            Track.self,
         ])
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
 
@@ -28,5 +28,9 @@ struct amptApp: App {
             ContentView()
         }
         .modelContainer(sharedModelContainer)
+        .windowStyle(.hiddenTitleBar)
+        .windowToolbarStyle(.unified)
+        .defaultSize(width: 300, height: 400)
+        .windowResizability(.contentMinSize)
     }
 }
