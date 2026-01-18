@@ -15,14 +15,14 @@ ampt is a minimal Winamp-inspired audio player for macOS built with SwiftUI.
    cd ampt
    ```
 
-2. Open in Xcode:
-   ```bash
-   open ampt.xcodeproj
-   ```
-
-3. Build and run (Cmd+R) or build a release:
+2. Build a release:
    ```bash
    xcodebuild -scheme ampt -configuration Release build
+   ```
+
+3. Open the built app:
+   ```bash
+   open ~/Library/Developer/Xcode/DerivedData/*/Build/Products/Release/ampt.app
    ```
 
 ## Features
