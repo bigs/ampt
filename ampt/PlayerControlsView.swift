@@ -11,7 +11,7 @@ struct PlayerControlsView: View {
     var body: some View {
         VStack(spacing: 8) {
             // Current track info
-            Text(state.currentTrack?.title ?? "No track")
+            Text(state.currentTrack?.displayName ?? "No track")
                 .font(.headline)
                 .lineLimit(1)
                 .truncationMode(.middle)

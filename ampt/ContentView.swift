@@ -128,12 +128,26 @@ struct ContentView: View {
             allFiles.append(contentsOf: collectAudioFiles(from: url))
         }
 
-        for (index, fileURL) in allFiles.enumerated() {
-            do {
-                let track = try Track(fileURL: fileURL, order: tracks.count + index)
-                modelContext.insert(track)
-            } catch {
-                print("Failed to create bookmark for \(fileURL.lastPathComponent): \(error)")
+        let startOrder = tracks.count
+        Task {
+            for (index, fileURL) in allFiles.enumerated() {
+                let metadata = await MetadataReader.read(from: fileURL)
+
+                await MainActor.run {
+                    do {
+                        let track = try Track(
+                            fileURL: fileURL,
+                            title: metadata.title,
+                            artist: metadata.artist,
+                            album: metadata.album,
+                            duration: metadata.duration,
+                            order: startOrder + index
+                        )
+                        modelContext.insert(track)
+                    } catch {
+                        print("Failed to create bookmark for \(fileURL.lastPathComponent): \(error)")
+                    }
+                }
             }
         }
     }
@@ -216,7 +230,7 @@ struct TrackRow: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Text(track.title)
+            Text(track.displayName)
                 .lineLimit(1)
                 .truncationMode(.tail)
 

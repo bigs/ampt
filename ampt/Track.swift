@@ -10,6 +10,8 @@ import SwiftData
 final class Track {
     var bookmarkData: Data
     var title: String
+    var artist: String?
+    var album: String?
     var duration: TimeInterval?
     var order: Int
     var dateAdded: Date
@@ -19,19 +21,29 @@ final class Track {
     @Transient var hasActiveAccess: Bool = false
     @Transient var needsSecurityScope: Bool = true
 
-    init(fileURL: URL, title: String? = nil, order: Int = 0) throws {
+    init(fileURL: URL, title: String? = nil, artist: String? = nil, album: String? = nil, duration: TimeInterval? = nil, order: Int = 0) throws {
         self.bookmarkData = try fileURL.bookmarkData(
             options: .withSecurityScope,
             includingResourceValuesForKeys: nil,
             relativeTo: nil
         )
         self.title = title ?? fileURL.deletingPathExtension().lastPathComponent
-        self.duration = nil
+        self.artist = artist
+        self.album = album
+        self.duration = duration
         self.order = order
         self.dateAdded = Date()
         self.cachedURL = fileURL
         self.hasActiveAccess = true  // Already have access from picker/drop
         self.needsSecurityScope = false  // Don't need to call startAccessing
+    }
+
+    /// Formatted display name (Artist - Title or just Title)
+    var displayName: String {
+        if let artist = artist, !artist.isEmpty {
+            return "\(artist) - \(title)"
+        }
+        return title
     }
 
     /// Resolves the security-scoped bookmark to get file access
