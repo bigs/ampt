@@ -7,6 +7,7 @@ import SwiftUI
 
 struct PlayerControlsView: View {
     @Bindable var state: PlayerState
+    @State private var showingVolume = false
 
     var body: some View {
         VStack(spacing: 8) {
@@ -20,32 +21,88 @@ struct PlayerControlsView: View {
             // Progress bar
             ProgressView(state: state)
 
-            // Transport controls
-            HStack(spacing: 16) {
-                Button(action: state.previous) {
-                    Image(systemName: "backward.fill")
-                }
-                .buttonStyle(.borderless)
+            // Transport controls with volume button overlay
+            ZStack {
+                // Transport controls (always centered)
+                transportControls
+                    .opacity(showingVolume ? 0 : 1)
 
-                Button(action: state.stop) {
-                    Image(systemName: "stop.fill")
-                }
-                .buttonStyle(.borderless)
+                // Volume slider (slides in from right)
+                volumeSlider
+                    .opacity(showingVolume ? 1 : 0)
 
-                Button(action: state.togglePlayPause) {
-                    Image(systemName: state.isPlaying ? "pause.fill" : "play.fill")
+                // Volume/close button (right aligned, fixed-width container)
+                HStack {
+                    Spacer()
+                    Button {
+                        withAnimation(.easeOut(duration: 0.08)) {
+                            showingVolume.toggle()
+                        }
+                    } label: {
+                        Image(systemName: showingVolume ? "xmark" : volumeIcon)
+                            .frame(width: 20, alignment: .leading)
+                    }
+                    .buttonStyle(.borderless)
+                    .font(.title3)
                 }
-                .buttonStyle(.borderless)
-                .font(.title2)
-
-                Button(action: state.next) {
-                    Image(systemName: "forward.fill")
-                }
-                .buttonStyle(.borderless)
             }
-            .font(.title3)
         }
         .padding()
+    }
+
+    private var volumeIcon: String {
+        let volume = state.audioPlayer.volume
+        if volume == 0 {
+            return "speaker.slash.fill"
+        } else if volume < 0.33 {
+            return "speaker.wave.1.fill"
+        } else if volume < 0.66 {
+            return "speaker.wave.2.fill"
+        } else {
+            return "speaker.wave.3.fill"
+        }
+    }
+
+    private var transportControls: some View {
+        HStack(spacing: 16) {
+            Button(action: state.previous) {
+                Image(systemName: "backward.fill")
+            }
+            .buttonStyle(.borderless)
+
+            Button(action: state.stop) {
+                Image(systemName: "stop.fill")
+            }
+            .buttonStyle(.borderless)
+
+            Button(action: state.togglePlayPause) {
+                Image(systemName: state.isPlaying ? "pause.fill" : "play.fill")
+            }
+            .buttonStyle(.borderless)
+            .font(.title2)
+
+            Button(action: state.next) {
+                Image(systemName: "forward.fill")
+            }
+            .buttonStyle(.borderless)
+        }
+        .font(.title3)
+    }
+
+    private var volumeSlider: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "speaker.fill")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Slider(value: Binding(
+                get: { Double(state.audioPlayer.volume) },
+                set: { state.audioPlayer.volume = Float($0) }
+            ), in: 0...1)
+            .frame(width: 100)
+            Image(systemName: "speaker.wave.3.fill")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
     }
 }
 

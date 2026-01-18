@@ -15,6 +15,10 @@ final class AudioPlayer {
     private(set) var currentTime: TimeInterval = 0
     private(set) var duration: TimeInterval = 0
 
+    var volume: Float = 1.0 {
+        didSet { engine.volume = volume }
+    }
+
     var onTrackFinished: (() -> Void)?
 
     init() {
@@ -85,10 +89,14 @@ private final class AudioEngine: NSObject, AVAudioPlayerDelegate {
 
     var duration: TimeInterval { player?.duration ?? 0 }
     var currentTime: TimeInterval { player?.currentTime ?? 0 }
+    var volume: Float = 1.0 {
+        didSet { player?.volume = volume }
+    }
 
     func load(_ url: URL) throws {
         player = try AVAudioPlayer(contentsOf: url)
         player?.delegate = self
+        player?.volume = volume
         player?.prepareToPlay()
     }
 
