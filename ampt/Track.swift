@@ -12,6 +12,7 @@ final class Track {
     var title: String
     var artist: String?
     var album: String?
+    var trackNumber: Int?
     var duration: TimeInterval?
     var order: Int
     var dateAdded: Date
@@ -21,7 +22,7 @@ final class Track {
     @Transient var hasActiveAccess: Bool = false
     @Transient var needsSecurityScope: Bool = true
 
-    init(fileURL: URL, title: String? = nil, artist: String? = nil, album: String? = nil, duration: TimeInterval? = nil, order: Int = 0) throws {
+    init(fileURL: URL, title: String? = nil, artist: String? = nil, album: String? = nil, trackNumber: Int? = nil, duration: TimeInterval? = nil, order: Int = 0) throws {
         self.bookmarkData = try fileURL.bookmarkData(
             options: .withSecurityScope,
             includingResourceValuesForKeys: nil,
@@ -30,6 +31,7 @@ final class Track {
         self.title = title ?? fileURL.deletingPathExtension().lastPathComponent
         self.artist = artist
         self.album = album
+        self.trackNumber = trackNumber
         self.duration = duration
         self.order = order
         self.dateAdded = Date()

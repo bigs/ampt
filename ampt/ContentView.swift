@@ -49,7 +49,7 @@ struct ContentView: View {
             ForEach(Array(tracks.enumerated()), id: \.element.id) { index, track in
                 let isCurrentTrack = playerState.currentTrack?.id == track.id
 
-                TrackRow(track: track, isCurrentTrack: isCurrentTrack)
+                TrackRow(track: track, playlistNumber: index + 1, isCurrentTrack: isCurrentTrack)
                     .tag(track.id)
                     .contextMenu {
                         Button("Play") {
@@ -140,6 +140,7 @@ struct ContentView: View {
                             title: metadata.title,
                             artist: metadata.artist,
                             album: metadata.album,
+                            trackNumber: metadata.trackNumber,
                             duration: metadata.duration,
                             order: startOrder + index
                         )
@@ -226,22 +227,60 @@ struct ContentView: View {
 
 struct TrackRow: View {
     let track: Track
+    let playlistNumber: Int
     let isCurrentTrack: Bool
 
     var body: some View {
         HStack(spacing: 8) {
-            Text(track.displayName)
+            // Playlist number
+            Text("\(playlistNumber).")
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+                .frame(minWidth: 24, alignment: .trailing)
+
+            // Title
+            Text(track.title)
                 .lineLimit(1)
                 .truncationMode(.tail)
 
+            // Artist (if available)
+            if let artist = track.artist, !artist.isEmpty {
+                Text(artist)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+
             Spacer(minLength: 4)
 
-            // Fixed-width playing indicator column
+            // Album info (track#, album) if available
+            if track.trackNumber != nil || track.album != nil {
+                Text(albumInfo)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: 150, alignment: .trailing)
+            }
+
+            // Playing indicator
             Image(systemName: "speaker.wave.2.fill")
                 .foregroundStyle(Color.accentColor)
                 .font(.caption)
                 .frame(width: 16)
                 .opacity(isCurrentTrack ? 1 : 0)
+        }
+    }
+
+    private var albumInfo: String {
+        switch (track.trackNumber, track.album) {
+        case let (num?, album?) where !album.isEmpty:
+            return "(\(num), \(album))"
+        case let (num?, _):
+            return "(\(num))"
+        case let (_, album?) where !album.isEmpty:
+            return "(\(album))"
+        default:
+            return ""
         }
     }
 }

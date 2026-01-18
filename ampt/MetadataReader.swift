@@ -10,6 +10,7 @@ struct TrackMetadata {
     var title: String?
     var artist: String?
     var album: String?
+    var trackNumber: Int?
     var duration: TimeInterval?
 }
 
@@ -41,6 +42,31 @@ enum MetadataReader {
                     metadata.album = value
                 default:
                     break
+                }
+            }
+
+            // Track number - try multiple approaches
+            for item in metadataItems {
+                // Try common key
+                if item.commonKey?.rawValue == "trackNumber" {
+                    if let number = try? await item.load(.numberValue) {
+                        metadata.trackNumber = number.intValue
+                    } else if let str = try? await item.load(.stringValue), let num = Int(str) {
+                        metadata.trackNumber = num
+                    }
+                }
+                // Try ID3 track number identifier
+                if let identifier = item.identifier?.rawValue,
+                   identifier.contains("TRCK") || identifier.contains("trackNumber") {
+                    if let number = try? await item.load(.numberValue) {
+                        metadata.trackNumber = number.intValue
+                    } else if let str = try? await item.load(.stringValue) {
+                        // Handle "1/12" format
+                        let parts = str.split(separator: "/")
+                        if let first = parts.first, let num = Int(first) {
+                            metadata.trackNumber = num
+                        }
+                    }
                 }
             }
         }
