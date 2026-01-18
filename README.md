@@ -2,6 +2,8 @@
 
 A minimal Winamp-inspired audio player for macOS, built with SwiftUI.
 
+![screenshot](screenshot.png)
+
 ![macOS](https://img.shields.io/badge/macOS-26.1+-blue)
 ![Swift](https://img.shields.io/badge/Swift-6-orange)
 
