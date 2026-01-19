@@ -128,8 +128,13 @@ final class PlayerState {
 
     func next() {
         guard !tracks.isEmpty else { return }
-        let newIndex = (currentIndex + 1) % tracks.count
-        play(track: tracks[newIndex], at: newIndex)
+        let nextIndex = currentIndex + 1
+        if nextIndex >= tracks.count {
+            // End of playlist - stop playback
+            stop()
+        } else {
+            play(track: tracks[nextIndex], at: nextIndex)
+        }
     }
 
     private func updateRemoteNowPlaying() {
