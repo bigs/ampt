@@ -9,6 +9,7 @@ import SwiftData
 @Observable
 final class PlayerState {
     let audioPlayer = AudioPlayer()
+    private let remoteManager = MediaRemoteManager()
 
     var currentTrack: Track?
     var currentIndex: Int = -1
@@ -18,6 +19,33 @@ final class PlayerState {
     init() {
         audioPlayer.onTrackFinished = { [weak self] in
             self?.next()
+        }
+        setupRemoteCommands()
+    }
+
+    private func setupRemoteCommands() {
+        remoteManager.onPlay = { [weak self] in
+            self?.audioPlayer.play()
+            self?.updateRemoteNowPlaying()
+        }
+        remoteManager.onPause = { [weak self] in
+            self?.audioPlayer.pause()
+            self?.updateRemoteNowPlaying()
+        }
+        remoteManager.onTogglePlayPause = { [weak self] in
+            self?.togglePlayPause()
+        }
+        remoteManager.onNext = { [weak self] in
+            self?.next()
+        }
+        remoteManager.onPrevious = { [weak self] in
+            self?.previous()
+        }
+        remoteManager.onStop = { [weak self] in
+            self?.stop()
+        }
+        remoteManager.onSeek = { [weak self] time in
+            self?.seek(to: time)
         }
     }
 
@@ -51,6 +79,7 @@ final class PlayerState {
         do {
             try audioPlayer.load(url)
             audioPlayer.play()
+            updateRemoteNowPlaying()
         } catch {
             print("Failed to load track: \(error)")
             track.stopAccessing()
@@ -64,11 +93,14 @@ final class PlayerState {
             audioPlayer.play()
         } else if !tracks.isEmpty {
             play(track: tracks[0], at: 0)
+            return
         }
+        updateRemoteNowPlaying()
     }
 
     func stop() {
         audioPlayer.stop()
+        updateRemoteNowPlaying()
     }
 
     func clearCurrentTrack() {
@@ -76,6 +108,7 @@ final class PlayerState {
         currentTrack?.stopAccessing()
         currentTrack = nil
         currentIndex = -1
+        updateRemoteNowPlaying()
     }
 
     func isCurrentTrack(_ track: Track) -> Bool {
@@ -84,6 +117,7 @@ final class PlayerState {
 
     func seek(to time: TimeInterval) {
         audioPlayer.seek(to: time)
+        updateRemoteNowPlaying()
     }
 
     func previous() {
@@ -96,5 +130,21 @@ final class PlayerState {
         guard !tracks.isEmpty else { return }
         let newIndex = (currentIndex + 1) % tracks.count
         play(track: tracks[newIndex], at: newIndex)
+    }
+
+    private func updateRemoteNowPlaying() {
+        guard let track = currentTrack else {
+            remoteManager.clearNowPlayingInfo()
+            return
+        }
+
+        remoteManager.updateNowPlayingInfo(
+            title: track.title,
+            artist: track.artist,
+            album: track.album,
+            duration: audioPlayer.duration,
+            currentTime: audioPlayer.currentTime,
+            playbackRate: audioPlayer.isPlaying ? 1.0 : 0.0
+        )
     }
 }
