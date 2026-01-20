@@ -94,11 +94,12 @@ final class SpiralIconGenerator {
         basePath.stroke()
 
         // Draw progress fill if needed
-        if progress > 0 {
+        // Skip very small progress values to avoid rendering artifacts
+        if progress > 0.005 {
             progressColor.setStroke()
 
             let fillLength = pathLength * CGFloat(progress)
-            let progressPath = createProgressPath(from: spiralPath, length: fillLength, totalLength: pathLength)
+            let progressPath = createProgressPath(from: spiralPath, length: fillLength, totalLength: pathLength, lineWidth: config.lineWidth)
 
             let fillBezier = NSBezierPath(cgPath: progressPath)
             fillBezier.lineWidth = config.lineWidth
@@ -204,14 +205,17 @@ final class SpiralIconGenerator {
 
     // MARK: - Progress Path
 
-    private func createProgressPath(from path: CGPath, length: CGFloat, totalLength: CGFloat) -> CGPath {
+    private func createProgressPath(from path: CGPath, length: CGFloat, totalLength: CGFloat, lineWidth: CGFloat) -> CGPath {
         // Create a partial path using dash pattern
         // This shows only the first 'length' of the path
         if length >= totalLength {
             return path
         }
 
-        let dashPattern: [CGFloat] = [length, totalLength - length]
+        // Shorten the dash length by the line width to account for the round cap at the end
+        // This prevents the end cap from appearing at the wrong position (center of spiral)
+        let adjustedLength = max(length - lineWidth, 0)
+        let dashPattern: [CGFloat] = [adjustedLength, totalLength - adjustedLength]
         return path.copy(dashingWithPhase: 0, lengths: dashPattern)
     }
 
