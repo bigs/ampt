@@ -43,7 +43,6 @@ final class SpiralIconGenerator {
 
     // MARK: - Colors
 
-    private let backgroundColor = NSColor(white: 0.95, alpha: 1.0)
     private let spiralColor = NSColor(white: 0.2, alpha: 0.8)
     private let progressColor = NSColor(calibratedRed: 1.0, green: 0.6, blue: 0.0, alpha: 1.0) // #FF9900
 
@@ -75,11 +74,13 @@ final class SpiralIconGenerator {
 
         // Draw into the bitmap context
         NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmapRep)
+        guard let context = NSGraphicsContext(bitmapImageRep: bitmapRep) else {
+            return NSImage(size: size)
+        }
+        NSGraphicsContext.current = context
 
-        // Draw background
-        backgroundColor.setFill()
-        NSBezierPath(rect: NSRect(origin: .zero, size: size)).fill()
+        // Explicitly clear the bitmap to transparent
+        context.cgContext.clear(CGRect(origin: .zero, size: size))
 
         // Generate spiral path
         let config = Config(forSize: size.width)
