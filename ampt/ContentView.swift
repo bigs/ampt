@@ -12,6 +12,7 @@ import AppKit
 
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.dockIconUpdater) private var dockIconUpdater
     @Query(sort: \Track.order) private var tracks: [Track]
     @State private var playerState = PlayerState()
     @State private var isDropTargeted = false
@@ -40,6 +41,10 @@ struct ContentView: View {
         .onAppear {
             cleanupInvalidTracks()
             playerState.updatePlaylist(tracks)
+            dockIconUpdater?.startObserving(playerState: playerState)
+        }
+        .onDisappear {
+            dockIconUpdater?.stopObserving()
         }
     }
 

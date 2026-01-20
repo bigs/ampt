@@ -23,14 +23,30 @@ struct amptApp: App {
         }
     }()
 
+    @State private var dockIconUpdater = DockIconUpdater()
+
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .environment(\.dockIconUpdater, dockIconUpdater)
         }
         .modelContainer(sharedModelContainer)
         .windowStyle(.hiddenTitleBar)
         .windowToolbarStyle(.unified)
         .defaultSize(width: 300, height: 400)
         .windowResizability(.contentMinSize)
+    }
+}
+
+// MARK: - Environment Key
+
+private struct DockIconUpdaterKey: EnvironmentKey {
+    static let defaultValue: DockIconUpdater? = nil
+}
+
+extension EnvironmentValues {
+    var dockIconUpdater: DockIconUpdater? {
+        get { self[DockIconUpdaterKey.self] }
+        set { self[DockIconUpdaterKey.self] = newValue }
     }
 }
