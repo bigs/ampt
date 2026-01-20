@@ -73,9 +73,10 @@ final class DockIconUpdater {
 
         // Only update when playing
         guard playerState.isPlaying else {
-            // Reset to static icon when not playing
+            // Reset to default app icon when not playing
             if lastUpdateProgress != 0 {
-                updateDockIcon(progress: 0.0)
+                NSApplication.shared.dockTile.contentView = nil
+                NSApplication.shared.dockTile.display()
                 lastUpdateProgress = 0
             }
             return
@@ -98,11 +99,16 @@ final class DockIconUpdater {
 
     @MainActor
     private func updateDockIcon(progress: Double) {
-        // Generate icon with progress fill
-        let iconSize = CGSize(width: 512, height: 512)
-        let icon = iconGenerator.generateIcon(size: iconSize, progress: progress)
+        // Use NSDockTile API for proper dock icon rendering
+        let dockTile = NSApplication.shared.dockTile
 
-        // Update dock icon
-        NSApplication.shared.applicationIconImage = icon
+        // Create a new content view with our icon
+        let dockSize = CGSize(width: 128, height: 128)
+        let generatedIcon = iconGenerator.generateIcon(size: dockSize, progress: progress)
+
+        // Set the badge image instead of replacing the whole icon
+        // This preserves the app icon styling
+        dockTile.contentView = NSImageView(image: generatedIcon)
+        dockTile.display()
     }
 }

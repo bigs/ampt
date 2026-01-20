@@ -41,10 +41,11 @@ struct ContentView: View {
         .onAppear {
             cleanupInvalidTracks()
             playerState.updatePlaylist(tracks)
-            dockIconUpdater?.startObserving(playerState: playerState)
+            // Dynamic icon disabled for now due to sizing/rendering issues
+            // dockIconUpdater?.startObserving(playerState: playerState)
         }
         .onDisappear {
-            dockIconUpdater?.stopObserving()
+            // dockIconUpdater?.stopObserving()
         }
     }
 
