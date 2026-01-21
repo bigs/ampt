@@ -47,6 +47,10 @@ struct ContentView: View {
         .onDisappear {
             // dockIconUpdater?.stopObserving()
         }
+        .onKeyPress(.space) {
+            playerState.togglePlayPause()
+            return .handled
+        }
     }
 
     @ViewBuilder
