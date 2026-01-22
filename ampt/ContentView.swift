@@ -14,7 +14,7 @@ struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dockIconUpdater) private var dockIconUpdater
     @Query(sort: \Track.order) private var tracks: [Track]
-    @State private var playerState = PlayerState()
+    var playerState: PlayerState
     @State private var isDropTargeted = false
     @State private var selectedTrackIDs: Set<Track.ID> = []
 
@@ -296,6 +296,6 @@ struct TrackRow: View {
 }
 
 #Preview {
-    ContentView()
+    ContentView(playerState: PlayerState())
         .modelContainer(for: Track.self, inMemory: true)
 }

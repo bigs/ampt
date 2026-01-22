@@ -23,12 +23,19 @@ struct amptApp: App {
         }
     }()
 
+    @State private var playerState = PlayerState()
     @State private var dockIconUpdater = DockIconUpdater()
+    @State private var dockMenuManager: DockMenuManager?
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            ContentView(playerState: playerState)
                 .environment(\.dockIconUpdater, dockIconUpdater)
+                .onAppear {
+                    if dockMenuManager == nil {
+                        dockMenuManager = DockMenuManager(playerState: playerState)
+                    }
+                }
         }
         .modelContainer(sharedModelContainer)
         .windowStyle(.hiddenTitleBar)
