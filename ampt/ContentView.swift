@@ -58,8 +58,9 @@ struct ContentView: View {
         List(selection: $selectedTrackIDs) {
             ForEach(Array(tracks.enumerated()), id: \.element.id) { index, track in
                 let isCurrentTrack = playerState.currentTrack?.id == track.id
+                let isPlaying = playerState.isPlaying
 
-                TrackRow(track: track, playlistNumber: index + 1, isCurrentTrack: isCurrentTrack)
+                TrackRow(track: track, playlistNumber: index + 1, isCurrentTrack: isCurrentTrack, isPlaying: isPlaying)
                     .tag(track.id)
                     .contextMenu {
                         Button("Play") {
@@ -239,6 +240,7 @@ struct TrackRow: View {
     let track: Track
     let playlistNumber: Int
     let isCurrentTrack: Bool
+    let isPlaying: Bool
 
     var body: some View {
         HStack(spacing: 8) {
@@ -274,7 +276,7 @@ struct TrackRow: View {
 
             // Playing indicator
             Image(systemName: "speaker.wave.2.fill")
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(isPlaying ? Color.accentColor : .secondary)
                 .font(.caption)
                 .frame(width: 16)
                 .opacity(isCurrentTrack ? 1 : 0)
