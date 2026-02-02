@@ -59,6 +59,10 @@ final class PlayerState {
         if let current = currentTrack,
            let newIndex = tracks.firstIndex(where: { $0.id == current.id }) {
             currentIndex = newIndex
+        } else if currentTrack != nil {
+            clearCurrentTrack()
+        } else {
+            currentIndex = -1
         }
     }
 
