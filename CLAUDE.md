@@ -35,31 +35,16 @@ No package managers (SPM, CocoaPods) are configured - all dependencies are syste
 - App Sandbox enabled
 - Hardened Runtime enabled
 
-## Issue Tracking
-
-This project uses **Beads** (`bd` CLI) instead of GitHub Issues. Issues are stored in `.beads/issues.jsonl` and synced with git.
-
-```bash
-bd ready                              # Find available work
-bd show <id>                          # View issue details
-bd update <id> --status in_progress   # Claim work
-bd close <id>                         # Complete work
-bd sync                               # Sync with git
-```
-
 ## Session Completion
 
 Before ending a session, you MUST complete:
 
-1. Create issues for remaining work with `bd create`
-2. Run quality gates if code changed (build succeeds)
-3. Update issue status with `bd close` / `bd update`
-4. Push to remote:
+1. Run quality gates if code changed (build succeeds)
+2. Push to remote:
    ```bash
    git pull --rebase
-   bd sync
    git push
    ```
-5. Verify `git status` shows "up to date with origin"
+3. Verify `git status` shows "up to date with origin"
 
 Work is NOT complete until `git push` succeeds.
