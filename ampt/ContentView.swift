@@ -15,6 +15,7 @@ struct ContentView: View {
     @Environment(\.dockIconUpdater) private var dockIconUpdater
     @Query(sort: \Track.order) private var tracks: [Track]
     var playerState: PlayerState
+    var fileDropCoordinator: FileDropCoordinator
     @State private var isDropTargeted = false
     @State private var selectedTrackIDs: Set<Track.ID> = []
 
@@ -38,9 +39,20 @@ struct ContentView: View {
         .onChange(of: tracks) { _, newTracks in
             playerState.updatePlaylist(newTracks)
         }
+        .onChange(of: fileDropCoordinator.pendingURLs) { _, newURLs in
+            guard !newURLs.isEmpty else { return }
+            fileDropCoordinator.pendingURLs = []
+            addURLs(newURLs, playFirst: true)
+        }
         .onAppear {
             cleanupInvalidTracks()
             playerState.updatePlaylist(tracks)
+            // Process any URLs that arrived before the view appeared
+            if !fileDropCoordinator.pendingURLs.isEmpty {
+                let urls = fileDropCoordinator.pendingURLs
+                fileDropCoordinator.pendingURLs = []
+                addURLs(urls, playFirst: true)
+            }
             // Dynamic icon disabled for now due to sizing/rendering issues
             // dockIconUpdater?.startObserving(playerState: playerState)
         }
@@ -133,7 +145,7 @@ struct ContentView: View {
         }
     }
 
-    private func addURLs(_ urls: [URL]) {
+    private func addURLs(_ urls: [URL], playFirst: Bool = false) {
         var allFiles: [URL] = []
         for url in urls {
             allFiles.append(contentsOf: collectAudioFiles(from: url))
@@ -156,6 +168,9 @@ struct ContentView: View {
                             order: startOrder + index
                         )
                         modelContext.insert(track)
+                        if playFirst && index == 0 {
+                            playerState.play(track: track, at: startOrder)
+                        }
                     } catch {
                         print("Failed to create bookmark for \(fileURL.lastPathComponent): \(error)")
                     }
@@ -298,6 +313,6 @@ struct TrackRow: View {
 }
 
 #Preview {
-    ContentView(playerState: PlayerState())
+    ContentView(playerState: PlayerState(), fileDropCoordinator: .shared)
         .modelContainer(for: Track.self, inMemory: true)
 }
