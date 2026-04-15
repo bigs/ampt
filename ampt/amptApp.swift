@@ -60,6 +60,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             FileDropCoordinator.shared.receive([url])
         }
     }
+
+    // Handles folders dropped onto the dock icon — folders bypass NSDocumentController
+    // and come through this classic delegate method instead.
+    func application(_ application: NSApplication, openFile filename: String) -> Bool {
+        let url = URL(fileURLWithPath: filename)
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: filename, isDirectory: &isDir),
+              isDir.boolValue else {
+            return false // let NSDocumentController handle audio files
+        }
+        FileDropCoordinator.shared.receive([url])
+        return true
+    }
 }
 
 // MARK: - Document Controller
