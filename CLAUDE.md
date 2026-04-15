@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-ampt is a macOS desktop application built with Swift/SwiftUI and SwiftData for persistence. It's currently a starter template with basic list/detail navigation for managing timestamped items.
+ampt is a macOS music player built with Swift/SwiftUI and SwiftData for persistence. It supports a persistent playlist, audio playback with transport controls, macOS media remote integration, and a dynamic dock icon that shows playback progress.
 
 ## Build Commands
 
@@ -27,9 +27,18 @@ No package managers (SPM, CocoaPods) are configured - all dependencies are syste
 - macOS 26.1+ deployment target
 
 **Key Files:**
-- `ampt/amptApp.swift` - App entry point, configures SwiftData ModelContainer
-- `ampt/ContentView.swift` - Main NavigationSplitView with list/detail layout
-- `ampt/Item.swift` - SwiftData @Model for timestamped items
+- `ampt/amptApp.swift` - App entry point, SwiftData container, `AmptDocumentController` for dock icon file drops
+- `ampt/ContentView.swift` - Main playlist view with drag-and-drop, file import, and playback controls
+- `ampt/Track.swift` - SwiftData `@Model` for playlist tracks with security-scoped bookmarks
+- `ampt/PlayerState.swift` - Playback orchestration (current track, next/previous, playlist state)
+- `ampt/AudioPlayer.swift` - `AVAudioPlayer` wrapper with progress timer
+- `ampt/PlayerControlsView.swift` - Transport controls, progress bar, volume slider
+- `ampt/MediaRemoteManager.swift` - macOS Control Center / headphone / keyboard media key integration
+- `ampt/MetadataReader.swift` - Async metadata extraction via `AVURLAsset`
+- `ampt/DockMenuManager.swift` - Right-click dock icon context menu
+- `ampt/DockIconUpdater.swift` - Dynamic dock icon with playback progress spiral
+- `ampt/SpiralIconGenerator.swift` - Generates the spiral progress icon
+- `ampt/Info.plist` - Declares audio file document types for dock icon drag-and-drop
 
 **Security:**
 - App Sandbox enabled
