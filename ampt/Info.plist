@@ -49,6 +49,7 @@
 				<string>public.aac-audio</string>
 				<string>org.xiph.flac</string>
 				<string>public.flac-audio</string>
+				<string>public.folder</string>
 			</array>
 		</dict>
 	</array>

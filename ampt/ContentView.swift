@@ -186,19 +186,14 @@ struct ContentView: View {
         }
 
         if isDirectory.boolValue {
-            guard let enumerator = FileManager.default.enumerator(
+            let contents = (try? FileManager.default.contentsOfDirectory(
                 at: url,
                 includingPropertiesForKeys: [.isRegularFileKey],
                 options: [.skipsHiddenFiles]
-            ) else { return [] }
-
-            var files: [URL] = []
-            for case let fileURL as URL in enumerator {
-                if validExtensions.contains(fileURL.pathExtension.lowercased()) {
-                    files.append(fileURL)
-                }
-            }
-            return files.sorted { $0.lastPathComponent < $1.lastPathComponent }
+            )) ?? []
+            return contents
+                .filter { validExtensions.contains($0.pathExtension.lowercased()) }
+                .sorted { $0.lastPathComponent < $1.lastPathComponent }
         } else {
             if validExtensions.contains(url.pathExtension.lowercased()) {
                 return [url]
