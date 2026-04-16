@@ -25,9 +25,16 @@ struct amptApp: App {
         }
     }()
 
-    @State private var playerState = PlayerState()
+    @State private var playerState: PlayerState
     @State private var dockIconUpdater = DockIconUpdater()
     @State private var dockMenuManager: DockMenuManager?
+    @State private var audioAnalyzer: AudioAnalyzer
+
+    init() {
+        let ps = PlayerState()
+        _playerState = State(initialValue: ps)
+        _audioAnalyzer = State(initialValue: AudioAnalyzer(audioPlayer: ps.audioPlayer))
+    }
 
     var body: some Scene {
         WindowGroup {
@@ -44,6 +51,14 @@ struct amptApp: App {
         .windowToolbarStyle(.unified)
         .defaultSize(width: 300, height: 400)
         .windowResizability(.contentMinSize)
+
+        WindowGroup(id: "visualizer") {
+            VisualizerWindow(audioAnalyzer: audioAnalyzer)
+                .onAppear { audioAnalyzer.start() }
+                .onDisappear { audioAnalyzer.stop() }
+        }
+        .windowStyle(.hiddenTitleBar)
+        .defaultSize(width: 600, height: 400)
     }
 }
 

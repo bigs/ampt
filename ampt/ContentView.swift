@@ -13,6 +13,7 @@ import AppKit
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dockIconUpdater) private var dockIconUpdater
+    @Environment(\.openWindow) private var openWindow
     @Query(sort: \Track.order) private var tracks: [Track]
     var playerState: PlayerState
     var fileDropCoordinator: FileDropCoordinator
@@ -126,6 +127,11 @@ struct ContentView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
+        ToolbarItem {
+            Button { openWindow(id: "visualizer") } label: {
+                Label("Visualizer", systemImage: "waveform")
+            }
+        }
         ToolbarItem {
             Button(action: openFiles) {
                 Label("Add Files", systemImage: "plus")
