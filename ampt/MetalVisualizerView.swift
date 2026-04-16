@@ -8,12 +8,16 @@ import MetalKit
 
 struct MetalVisualizerView: NSViewRepresentable {
     let audioAnalyzer: AudioAnalyzer
+    var shaderSource: String
+    var compilationState: ShaderCompilationState
 
     func makeCoordinator() -> VisualizerRenderer {
         guard let device = MTLCreateSystemDefaultDevice() else {
             fatalError("Metal is not supported on this device")
         }
-        return VisualizerRenderer(device: device, audioAnalyzer: audioAnalyzer)
+        let renderer = VisualizerRenderer(device: device, audioAnalyzer: audioAnalyzer)
+        renderer.compilationState = compilationState
+        return renderer
     }
 
     func makeNSView(context: Context) -> MTKView {
@@ -28,8 +32,17 @@ struct MetalVisualizerView: NSViewRepresentable {
         mtkView.delegate = renderer
         mtkView.layer?.isOpaque = true
         mtkView.autoresizingMask = [.width, .height]
+
+        // Compile initial shader from source
+        renderer.updateShader(source: shaderSource)
+
         return mtkView
     }
 
-    func updateNSView(_ nsView: MTKView, context: Context) {}
+    func updateNSView(_ nsView: MTKView, context: Context) {
+        let renderer = context.coordinator
+        if shaderSource != renderer.currentSource {
+            renderer.updateShader(source: shaderSource)
+        }
+    }
 }

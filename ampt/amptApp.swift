@@ -15,11 +15,14 @@ struct amptApp: App {
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
             Track.self,
+            Shader.self,
         ])
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
 
         do {
-            return try ModelContainer(for: schema, configurations: [modelConfiguration])
+            let container = try ModelContainer(for: schema, configurations: [modelConfiguration])
+            Shader.seedDefaultIfNeeded(in: container.mainContext)
+            return container
         } catch {
             fatalError("Could not create ModelContainer: \(error)")
         }
@@ -29,6 +32,7 @@ struct amptApp: App {
     @State private var dockIconUpdater = DockIconUpdater()
     @State private var dockMenuManager: DockMenuManager?
     @State private var audioAnalyzer: AudioAnalyzer
+    @State private var compilationState = ShaderCompilationState()
 
     init() {
         let ps = PlayerState()
@@ -53,12 +57,21 @@ struct amptApp: App {
         .windowResizability(.contentMinSize)
 
         WindowGroup(id: "visualizer") {
-            VisualizerWindow(audioAnalyzer: audioAnalyzer)
+            VisualizerWindow(audioAnalyzer: audioAnalyzer, compilationState: compilationState)
+                .navigationTitle("ampt Visualizer")
                 .onAppear { audioAnalyzer.start() }
                 .onDisappear { audioAnalyzer.stop() }
         }
+        .modelContainer(sharedModelContainer)
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 600, height: 400)
+
+        WindowGroup(id: "shader-library") {
+            ShaderLibraryView(compilationState: compilationState)
+                .navigationTitle("Shader Library")
+        }
+        .modelContainer(sharedModelContainer)
+        .defaultSize(width: 800, height: 500)
     }
 }
 

@@ -8,8 +8,10 @@ import MetalKit
 final class VisualizerRenderer: NSObject, MTKViewDelegate {
     let device: MTLDevice
     private let commandQueue: MTLCommandQueue
-    private let pipelineState: MTLRenderPipelineState
+    private var pipelineState: MTLRenderPipelineState
     let audioAnalyzer: AudioAnalyzer
+    var compilationState: ShaderCompilationState?
+    private(set) var currentSource: String?
 
     init(device: MTLDevice, audioAnalyzer: AudioAnalyzer) {
         self.device = device
@@ -20,6 +22,7 @@ final class VisualizerRenderer: NSObject, MTKViewDelegate {
         }
         self.commandQueue = queue
 
+        // Initial pipeline from compiled default library as fallback
         guard let library = device.makeDefaultLibrary() else {
             fatalError("Failed to load Metal shader library")
         }
@@ -36,6 +39,38 @@ final class VisualizerRenderer: NSObject, MTKViewDelegate {
         }
 
         super.init()
+    }
+
+    @discardableResult
+    func updateShader(source: String) -> String? {
+        do {
+            let library = try device.makeLibrary(source: source, options: nil)
+
+            guard let vertexFn = library.makeFunction(name: "visualizerVertex") else {
+                let msg = "Shader must define a 'visualizerVertex' function"
+                compilationState?.error = msg
+                return msg
+            }
+            guard let fragmentFn = library.makeFunction(name: "visualizerFragment") else {
+                let msg = "Shader must define a 'visualizerFragment' function"
+                compilationState?.error = msg
+                return msg
+            }
+
+            let descriptor = MTLRenderPipelineDescriptor()
+            descriptor.vertexFunction = vertexFn
+            descriptor.fragmentFunction = fragmentFn
+            descriptor.colorAttachments[0].pixelFormat = .bgra8Unorm
+
+            pipelineState = try device.makeRenderPipelineState(descriptor: descriptor)
+            currentSource = source
+            compilationState?.error = nil
+            return nil
+        } catch {
+            let msg = error.localizedDescription
+            compilationState?.error = msg
+            return msg
+        }
     }
 
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}

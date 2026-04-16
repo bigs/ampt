@@ -128,14 +128,27 @@ struct ContentView: View {
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         ToolbarItem {
-            Button { openWindow(id: "visualizer") } label: {
+            Button { toggleWindow(id: "visualizer", title: "ampt Visualizer") } label: {
                 Label("Visualizer", systemImage: "waveform")
+            }
+        }
+        ToolbarItem {
+            Button { toggleWindow(id: "shader-library", title: "Shader Library") } label: {
+                Label("Shaders", systemImage: "slider.horizontal.3")
             }
         }
         ToolbarItem {
             Button(action: openFiles) {
                 Label("Add Files", systemImage: "plus")
             }
+        }
+    }
+
+    private func toggleWindow(id: String, title: String) {
+        if let existing = NSApp.windows.first(where: { $0.title == title }) {
+            existing.close()
+        } else {
+            openWindow(id: id)
         }
     }
 
