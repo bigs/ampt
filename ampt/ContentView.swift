@@ -165,7 +165,9 @@ struct ContentView: View {
         let files = urls.flatMap(Self.collectAudioFiles)
         guard !files.isEmpty else { return }
 
-        let startOrder = tracks.count
+        // Orders aren't contiguous after removals, so append past the max.
+        let startOrder = (tracks.map(\.order).max() ?? -1) + 1
+        let firstIndex = tracks.count
         Task {
             // Read metadata concurrently; results keep the enumeration order so
             // the playlist order matches the folder listing.
@@ -204,7 +206,7 @@ struct ContentView: View {
             try? modelContext.save()
 
             if playFirst, let firstTrack {
-                playerState.play(track: firstTrack, at: startOrder)
+                playerState.play(track: firstTrack, at: firstIndex)
             }
         }
     }
