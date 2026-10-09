@@ -5,17 +5,12 @@
 
 import Foundation
 
-@Observable
+/// Turns raw spectrum readings into smoothed, normalised shader uniforms.
+/// Sampled once per rendered frame by `VisualizerRenderer`, so it runs at
+/// the display rate and only while a visualizer window is open.
 final class AudioAnalyzer {
     private let audioPlayer: AudioPlayer
-    private var timer: Timer?
-    private var startTime: TimeInterval = 0
-
-    private(set) var uniforms = ShaderUniforms(
-        time: 0, amplitude: 0, peak: 0,
-        bass: 0, mid: 0, treble: 0,
-        resolution: .zero
-    )
+    private let startTime = ProcessInfo.processInfo.systemUptime
 
     // Smoothing state
     private var smoothBass: Float = 0
@@ -26,23 +21,9 @@ final class AudioAnalyzer {
 
     init(audioPlayer: AudioPlayer) {
         self.audioPlayer = audioPlayer
-        startTime = ProcessInfo.processInfo.systemUptime
     }
 
-    func start() {
-        guard timer == nil else { return }
-        startTime = ProcessInfo.processInfo.systemUptime
-        timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
-            self?.update()
-        }
-    }
-
-    func stop() {
-        timer?.invalidate()
-        timer = nil
-    }
-
-    private func update() {
+    func sample() -> ShaderUniforms {
         let spectrum = audioPlayer.readSpectrum()
         let elapsed = Float(ProcessInfo.processInfo.systemUptime - startTime)
 
@@ -55,12 +36,15 @@ final class AudioAnalyzer {
 
         // Normalize to [0,1] — these scale factors are tuned empirically,
         // real magnitudes depend on content and mastering levels.
-        uniforms.time = elapsed
-        uniforms.amplitude = min(1, smoothAmplitude * 5.0)
-        uniforms.peak = min(1, smoothPeak * 3.0)
-        uniforms.bass = min(1, smoothBass * 8.0)
-        uniforms.mid = min(1, smoothMid * 10.0)
-        uniforms.treble = min(1, smoothTreble * 15.0)
+        return ShaderUniforms(
+            time: elapsed,
+            amplitude: min(1, smoothAmplitude * 5.0),
+            peak: min(1, smoothPeak * 3.0),
+            bass: min(1, smoothBass * 8.0),
+            mid: min(1, smoothMid * 10.0),
+            treble: min(1, smoothTreble * 15.0),
+            resolution: .zero
+        )
     }
 
     private func ema(_ current: Float, target: Float, alpha: Float) -> Float {

@@ -8,7 +8,8 @@ import MetalKit
 final class VisualizerRenderer: NSObject, MTKViewDelegate {
     let device: MTLDevice
     private let commandQueue: MTLCommandQueue
-    private var pipelineState: MTLRenderPipelineState
+    /// nil until the first successful `updateShader`; frames are skipped until then.
+    private var pipelineState: MTLRenderPipelineState?
     let audioAnalyzer: AudioAnalyzer
     var compilationState: ShaderCompilationState?
     private(set) var currentSource: String?
@@ -21,22 +22,6 @@ final class VisualizerRenderer: NSObject, MTKViewDelegate {
             fatalError("Failed to create Metal command queue")
         }
         self.commandQueue = queue
-
-        // Initial pipeline from compiled default library as fallback
-        guard let library = device.makeDefaultLibrary() else {
-            fatalError("Failed to load Metal shader library")
-        }
-
-        let descriptor = MTLRenderPipelineDescriptor()
-        descriptor.vertexFunction = library.makeFunction(name: "visualizerVertex")
-        descriptor.fragmentFunction = library.makeFunction(name: "visualizerFragment")
-        descriptor.colorAttachments[0].pixelFormat = .bgra8Unorm
-
-        do {
-            pipelineState = try device.makeRenderPipelineState(descriptor: descriptor)
-        } catch {
-            fatalError("Failed to create render pipeline state: \(error)")
-        }
 
         super.init()
     }
@@ -76,14 +61,15 @@ final class VisualizerRenderer: NSObject, MTKViewDelegate {
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
 
     func draw(in view: MTKView) {
-        guard let drawable = view.currentDrawable,
+        guard let pipelineState,
+              let drawable = view.currentDrawable,
               let descriptor = view.currentRenderPassDescriptor,
               let commandBuffer = commandQueue.makeCommandBuffer(),
               let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: descriptor) else {
             return
         }
 
-        var uniforms = audioAnalyzer.uniforms
+        var uniforms = audioAnalyzer.sample()
         uniforms.resolution = SIMD2<Float>(
             Float(view.drawableSize.width),
             Float(view.drawableSize.height)

@@ -6,7 +6,7 @@
 import Foundation
 import AVFoundation
 
-struct TrackMetadata {
+nonisolated struct TrackMetadata {
     var title: String?
     var artist: String?
     var album: String?
@@ -14,7 +14,7 @@ struct TrackMetadata {
     var duration: TimeInterval?
 }
 
-enum MetadataReader {
+nonisolated enum MetadataReader {
     static func read(from url: URL) async -> TrackMetadata {
         let asset = AVURLAsset(url: url)
 

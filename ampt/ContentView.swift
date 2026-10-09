@@ -12,7 +12,6 @@ import AppKit
 
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
-    @Environment(\.dockIconUpdater) private var dockIconUpdater
     @Environment(\.openWindow) private var openWindow
     @Query(sort: \Track.order) private var tracks: [Track]
     var playerState: PlayerState
@@ -20,7 +19,10 @@ struct ContentView: View {
     @State private var isDropTargeted = false
     @State private var selectedTrackIDs: Set<Track.ID> = []
 
-    private let validExtensions: Set<String> = ["mp3", "flac", "m4a", "aac", "wav", "aiff", "alac"]
+    /// Single source of truth for what counts as an audio file, for both the
+    /// open panel and drop/folder filtering.
+    private nonisolated static let audioExtensions: Set<String> = ["mp3", "flac", "m4a", "aac", "wav", "aiff", "aif", "alac"]
+    private static let audioContentTypes: [UTType] = audioExtensions.compactMap { UTType(filenameExtension: $0) }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -46,7 +48,6 @@ struct ContentView: View {
             addURLs(newURLs, playFirst: true)
         }
         .onAppear {
-            cleanupInvalidTracks()
             playerState.updatePlaylist(tracks)
             // Process any URLs that arrived before the view appeared
             if !fileDropCoordinator.pendingURLs.isEmpty {
@@ -54,11 +55,6 @@ struct ContentView: View {
                 fileDropCoordinator.pendingURLs = []
                 addURLs(urls, playFirst: true)
             }
-            // Dynamic icon disabled for now due to sizing/rendering issues
-            // dockIconUpdater?.startObserving(playerState: playerState)
-        }
-        .onDisappear {
-            // dockIconUpdater?.stopObserving()
         }
         .onKeyPress(.space) {
             playerState.togglePlayPause()
@@ -72,8 +68,9 @@ struct ContentView: View {
             ForEach(Array(tracks.enumerated()), id: \.element.id) { index, track in
                 let isCurrentTrack = playerState.currentTrack?.id == track.id
                 let isPlaying = playerState.isPlaying
+                let isUnavailable = playerState.unavailableTrackIDs.contains(track.id)
 
-                TrackRow(track: track, playlistNumber: index + 1, isCurrentTrack: isCurrentTrack, isPlaying: isPlaying)
+                TrackRow(track: track, playlistNumber: index + 1, isCurrentTrack: isCurrentTrack, isPlaying: isPlaying, isUnavailable: isUnavailable)
                     .tag(track.id)
                     .contextMenu {
                         Button("Play") {
@@ -157,7 +154,7 @@ struct ContentView: View {
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = true
         panel.canChooseFiles = true
-        panel.allowedContentTypes = [.audio, .mp3, .aiff, .wav]
+        panel.allowedContentTypes = Self.audioContentTypes
 
         if panel.runModal() == .OK {
             addURLs(panel.urls)
@@ -165,60 +162,82 @@ struct ContentView: View {
     }
 
     private func addURLs(_ urls: [URL], playFirst: Bool = false) {
-        var allFiles: [URL] = []
-        for url in urls {
-            allFiles.append(contentsOf: collectAudioFiles(from: url))
-        }
+        let files = urls.flatMap(Self.collectAudioFiles)
+        guard !files.isEmpty else { return }
 
         let startOrder = tracks.count
         Task {
-            for (index, fileURL) in allFiles.enumerated() {
-                let metadata = await MetadataReader.read(from: fileURL)
-
-                await MainActor.run {
-                    do {
-                        let track = try Track(
-                            fileURL: fileURL,
-                            title: metadata.title,
-                            artist: metadata.artist,
-                            album: metadata.album,
-                            trackNumber: metadata.trackNumber,
-                            duration: metadata.duration,
-                            order: startOrder + index
-                        )
-                        modelContext.insert(track)
-                        if playFirst && index == 0 {
-                            playerState.play(track: track, at: startOrder)
-                        }
-                    } catch {
-                        print("Failed to create bookmark for \(fileURL.lastPathComponent): \(error)")
-                    }
+            // Read metadata concurrently; results keep the enumeration order so
+            // the playlist order matches the folder listing.
+            let metadata = await withTaskGroup(of: (Int, TrackMetadata).self) { group in
+                for (index, url) in files.enumerated() {
+                    group.addTask { (index, await MetadataReader.read(from: url)) }
                 }
+                var results = [TrackMetadata?](repeating: nil, count: files.count)
+                for await (index, meta) in group {
+                    results[index] = meta
+                }
+                return results
+            }
+
+            var firstTrack: Track?
+            var order = startOrder
+            for (url, meta) in zip(files, metadata) {
+                let meta = meta ?? TrackMetadata()
+                do {
+                    let track = try Track(
+                        fileURL: url,
+                        title: meta.title,
+                        artist: meta.artist,
+                        album: meta.album,
+                        trackNumber: meta.trackNumber,
+                        duration: meta.duration,
+                        order: order
+                    )
+                    modelContext.insert(track)
+                    if firstTrack == nil { firstTrack = track }
+                    order += 1
+                } catch {
+                    print("Failed to create bookmark for \(url.lastPathComponent): \(error)")
+                }
+            }
+            try? modelContext.save()
+
+            if playFirst, let firstTrack {
+                playerState.play(track: firstTrack, at: startOrder)
             }
         }
     }
 
-    private func collectAudioFiles(from url: URL) -> [URL] {
+    /// Expands a dropped/picked URL into audio files. Folders are walked
+    /// recursively and sorted by path so album folders import in order.
+    private nonisolated static func collectAudioFiles(from url: URL) -> [URL] {
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
             return []
         }
+        guard isDirectory.boolValue else {
+            return isAudioFile(url) ? [url] : []
+        }
 
-        if isDirectory.boolValue {
-            let contents = (try? FileManager.default.contentsOfDirectory(
-                at: url,
-                includingPropertiesForKeys: [.isRegularFileKey],
-                options: [.skipsHiddenFiles]
-            )) ?? []
-            return contents
-                .filter { validExtensions.contains($0.pathExtension.lowercased()) }
-                .sorted { $0.lastPathComponent < $1.lastPathComponent }
-        } else {
-            if validExtensions.contains(url.pathExtension.lowercased()) {
-                return [url]
-            }
+        guard let enumerator = FileManager.default.enumerator(
+            at: url,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+        ) else {
             return []
         }
+
+        var files: [URL] = []
+        for case let fileURL as URL in enumerator where isAudioFile(fileURL) {
+            let isRegular = (try? fileURL.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) ?? false
+            if isRegular { files.append(fileURL) }
+        }
+        return files.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
+    }
+
+    private nonisolated static func isAudioFile(_ url: URL) -> Bool {
+        audioExtensions.contains(url.pathExtension.lowercased())
     }
 
     private func deleteTrack(_ track: Track) {
@@ -252,16 +271,7 @@ struct ContentView: View {
         for (index, track) in reorderedTracks.enumerated() {
             track.order = index
         }
-    }
-
-    private func cleanupInvalidTracks() {
-        let invalidTracks = tracks.filter { !$0.isValid }
-        if !invalidTracks.isEmpty {
-            for track in invalidTracks {
-                modelContext.delete(track)
-            }
-            print("Removed \(invalidTracks.count) invalid track(s)")
-        }
+        try? modelContext.save()
     }
 }
 
@@ -270,6 +280,7 @@ struct TrackRow: View {
     let playlistNumber: Int
     let isCurrentTrack: Bool
     let isPlaying: Bool
+    let isUnavailable: Bool
 
     var body: some View {
         HStack(spacing: 8) {
@@ -303,13 +314,22 @@ struct TrackRow: View {
                     .frame(maxWidth: 150, alignment: .trailing)
             }
 
-            // Playing indicator
-            Image(systemName: "speaker.wave.2.fill")
-                .foregroundStyle(isPlaying ? Color.accentColor : .secondary)
-                .font(.caption)
-                .frame(width: 16)
-                .opacity(isCurrentTrack ? 1 : 0)
+            // Trailing status: unavailable warning, or playing indicator
+            if isUnavailable {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.yellow)
+                    .font(.caption)
+                    .frame(width: 16)
+                    .help("File could not be opened. Is its drive mounted?")
+            } else {
+                Image(systemName: "speaker.wave.2.fill")
+                    .foregroundStyle(isPlaying ? Color.accentColor : .secondary)
+                    .font(.caption)
+                    .frame(width: 16)
+                    .opacity(isCurrentTrack ? 1 : 0)
+            }
         }
+        .opacity(isUnavailable ? 0.5 : 1)
     }
 
     private var albumInfo: String {

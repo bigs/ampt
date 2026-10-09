@@ -81,9 +81,13 @@ final class AudioPlayer {
 
     private func startProgressTimer() {
         stopProgressTimer()
-        progressTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            self?.updateProgress()
+        // .common so the progress bar keeps moving during slider drags,
+        // menu tracking and window resizes (default mode is suspended then).
+        let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.updateProgress() }
         }
+        RunLoop.main.add(timer, forMode: .common)
+        progressTimer = timer
     }
 
     private func stopProgressTimer() {

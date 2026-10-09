@@ -14,7 +14,14 @@ final class PlayerState {
     var currentTrack: Track?
     var currentIndex: Int = -1
 
+    /// Tracks whose file could not be opened the last time playback was
+    /// attempted. Cleared per-track on a later successful play. Nothing is
+    /// deleted automatically: an unmounted drive shouldn't wipe the playlist.
+    private(set) var unavailableTrackIDs: Set<Track.ID> = []
+
     private var tracks: [Track] = []
+    /// Open security scope for `currentTrack`; released when replaced or cleared.
+    private var trackAccess: TrackAccess?
 
     init() {
         audioPlayer.onTrackFinished = { [weak self] in
@@ -69,28 +76,31 @@ final class PlayerState {
         }
     }
 
-    func play(track: Track, at index: Int) {
-        // Stop accessing previous track's security scope
-        currentTrack?.stopAccessing()
-
-        currentTrack = track
-        currentIndex = index
-
-        // Resolve bookmark and start accessing
-        guard track.startAccessing(),
-              let url = track.resolveURL() else {
+    /// Opens and starts the track. On failure the previous track keeps its
+    /// access and state; the failed track is marked unavailable.
+    @discardableResult
+    func play(track: Track, at index: Int) -> Bool {
+        guard let newAccess = TrackAccess(track: track) else {
             print("Failed to access track: \(track.title)")
-            return
+            unavailableTrackIDs.insert(track.id)
+            return false
         }
 
         do {
-            try audioPlayer.load(url)
-            audioPlayer.play()
-            updateRemoteNowPlaying()
+            try audioPlayer.load(newAccess.url)
         } catch {
-            print("Failed to load track: \(error)")
-            track.stopAccessing()
+            print("Failed to load track \(track.title): \(error)")
+            unavailableTrackIDs.insert(track.id)
+            return false
         }
+
+        trackAccess = newAccess
+        currentTrack = track
+        currentIndex = index
+        unavailableTrackIDs.remove(track.id)
+        audioPlayer.play()
+        updateRemoteNowPlaying()
+        return true
     }
 
     func togglePlayPause() {
@@ -98,8 +108,8 @@ final class PlayerState {
             audioPlayer.pause()
         } else if currentTrack != nil {
             audioPlayer.play()
-        } else if !tracks.isEmpty {
-            play(track: tracks[0], at: 0)
+        } else {
+            playFirstAvailable(from: 0, step: 1)
             return
         }
         updateRemoteNowPlaying()
@@ -112,7 +122,7 @@ final class PlayerState {
 
     func clearCurrentTrack() {
         audioPlayer.stop()
-        currentTrack?.stopAccessing()
+        trackAccess = nil
         currentTrack = nil
         currentIndex = -1
         updateRemoteNowPlaying()
@@ -129,19 +139,29 @@ final class PlayerState {
 
     func previous() {
         guard !tracks.isEmpty else { return }
-        let newIndex = currentIndex > 0 ? currentIndex - 1 : tracks.count - 1
-        play(track: tracks[newIndex], at: newIndex)
+        let start = currentIndex > 0 ? currentIndex - 1 : tracks.count - 1
+        playFirstAvailable(from: start, step: -1)
     }
 
     func next() {
         guard !tracks.isEmpty else { return }
-        let nextIndex = currentIndex + 1
-        if nextIndex >= tracks.count {
-            // End of playlist - stop playback
+        let start = currentIndex + 1
+        if start >= tracks.count || !playFirstAvailable(from: start, step: 1) {
+            // End of playlist (or nothing playable after this point)
             stop()
-        } else {
-            play(track: tracks[nextIndex], at: nextIndex)
         }
+    }
+
+    /// Walks the playlist from `from` in direction `step` until a track
+    /// opens. Returns false if none did.
+    @discardableResult
+    private func playFirstAvailable(from: Int, step: Int) -> Bool {
+        var index = from
+        while tracks.indices.contains(index) {
+            if play(track: tracks[index], at: index) { return true }
+            index += step
+        }
+        return false
     }
 
     private func updateRemoteNowPlaying() {

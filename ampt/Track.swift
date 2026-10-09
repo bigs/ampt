@@ -17,11 +17,6 @@ final class Track {
     var order: Int
     var dateAdded: Date
 
-    // Transient state (not persisted)
-    @Transient var cachedURL: URL?
-    @Transient var hasActiveAccess: Bool = false
-    @Transient var needsSecurityScope: Bool = true
-
     init(fileURL: URL, title: String? = nil, artist: String? = nil, album: String? = nil, trackNumber: Int? = nil, duration: TimeInterval? = nil, order: Int = 0) throws {
         self.bookmarkData = try fileURL.bookmarkData(
             options: .withSecurityScope,
@@ -35,9 +30,6 @@ final class Track {
         self.duration = duration
         self.order = order
         self.dateAdded = Date()
-        self.cachedURL = fileURL
-        self.hasActiveAccess = true  // Already have access from picker/drop
-        self.needsSecurityScope = false  // Don't need to call startAccessing
     }
 
     /// Formatted display name (Artist - Title or just Title)
@@ -48,12 +40,9 @@ final class Track {
         return title
     }
 
-    /// Resolves the security-scoped bookmark to get file access
+    /// Resolves the security-scoped bookmark, refreshing it if the system
+    /// reports it stale. Does not start access; see `TrackAccess`.
     func resolveURL() -> URL? {
-        if let cached = cachedURL {
-            return cached
-        }
-
         var isStale = false
         guard let url = try? URL(
             resolvingBookmarkData: bookmarkData,
@@ -64,64 +53,39 @@ final class Track {
             return nil
         }
 
-        if isStale {
-            // Try to refresh the bookmark
-            if let newData = try? url.bookmarkData(
-                options: .withSecurityScope,
-                includingResourceValuesForKeys: nil,
-                relativeTo: nil
-            ) {
-                bookmarkData = newData
-            }
+        if isStale,
+           let newData = try? url.bookmarkData(
+               options: .withSecurityScope,
+               includingResourceValuesForKeys: nil,
+               relativeTo: nil
+           ) {
+            bookmarkData = newData
         }
 
-        cachedURL = url
-        needsSecurityScope = true  // Resolved from bookmark, needs security scope
         return url
     }
+}
 
-    /// Start accessing the security-scoped resource
-    func startAccessing() -> Bool {
-        if hasActiveAccess {
-            return true  // Already have access
+/// An open security scope on a track's file. Access is held for the
+/// lifetime of the object and released in `deinit`, so holding exactly one
+/// of these in the player guarantees balanced start/stop calls regardless
+/// of how SwiftData materialises `Track` instances.
+final class TrackAccess {
+    let url: URL
+    private let scoped: Bool
+
+    init?(track: Track) {
+        guard let url = track.resolveURL() else { return nil }
+        scoped = url.startAccessingSecurityScopedResource()
+        guard scoped || FileManager.default.isReadableFile(atPath: url.path) else {
+            return nil
         }
-
-        guard let url = resolveURL() else { return false }
-
-        if needsSecurityScope {
-            hasActiveAccess = url.startAccessingSecurityScopedResource()
-            return hasActiveAccess
-        }
-
-        hasActiveAccess = true
-        return true
+        self.url = url
     }
 
-    /// Stop accessing the security-scoped resource
-    func stopAccessing() {
-        if hasActiveAccess && needsSecurityScope {
-            cachedURL?.stopAccessingSecurityScopedResource()
+    deinit {
+        if scoped {
+            url.stopAccessingSecurityScopedResource()
         }
-        hasActiveAccess = false
-    }
-
-    /// Check if the track's file is still accessible
-    var isValid: Bool {
-        if cachedURL != nil {
-            return true  // Fresh track from this session
-        }
-
-        var isStale = false
-        guard let url = try? URL(
-            resolvingBookmarkData: bookmarkData,
-            options: .withSecurityScope,
-            relativeTo: nil,
-            bookmarkDataIsStale: &isStale
-        ) else {
-            return false
-        }
-
-        // Check if file exists
-        return FileManager.default.fileExists(atPath: url.path)
     }
 }
