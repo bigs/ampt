@@ -31,7 +31,7 @@ No package managers (SPM, CocoaPods) are configured - all dependencies are syste
 - `ampt/ContentView.swift` - Main playlist view with drag-and-drop, file import, and playback controls
 - `ampt/Track.swift` - SwiftData `@Model` for playlist tracks with security-scoped bookmarks
 - `ampt/PlayerState.swift` - Playback orchestration (current track, next/previous, playlist state)
-- `ampt/AudioPlayer.swift` - `AVAudioPlayer` wrapper with progress timer
+- `ampt/AudioPlayer.swift` - `AVAudioEngine`/`AVAudioPlayerNode` wrapper with progress timer, FFT spectrum tap, and output-device-change recovery
 - `ampt/PlayerControlsView.swift` - Transport controls, progress bar, volume slider
 - `ampt/MediaRemoteManager.swift` - macOS Control Center / headphone / keyboard media key integration
 - `ampt/MetadataReader.swift` - Async metadata extraction via `AVURLAsset`

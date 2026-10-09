@@ -20,6 +20,9 @@ final class PlayerState {
         audioPlayer.onTrackFinished = { [weak self] in
             self?.next()
         }
+        audioPlayer.onPlaybackInterrupted = { [weak self] in
+            self?.updateRemoteNowPlaying()
+        }
         setupRemoteCommands()
     }
 

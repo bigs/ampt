@@ -30,10 +30,16 @@ final class AudioPlayer {
     }
 
     var onTrackFinished: (() -> Void)?
+    /// Playback stopped without user action (engine could not resume after an
+    /// output device change). `isPlaying` is already false when this fires.
+    var onPlaybackInterrupted: (() -> Void)?
 
     init() {
         engine.onFinished = { [weak self] in
             self?.handleTrackFinished()
+        }
+        engine.onInterrupted = { [weak self] in
+            self?.handleInterrupted()
         }
     }
 
@@ -46,7 +52,7 @@ final class AudioPlayer {
     }
 
     func play() {
-        engine.play()
+        guard engine.play() else { return }
         isPlaying = true
         startProgressTimer()
     }
@@ -93,6 +99,13 @@ final class AudioPlayer {
         isPlaying = false
         stopProgressTimer()
         onTrackFinished?()
+    }
+
+    private func handleInterrupted() {
+        isPlaying = false
+        stopProgressTimer()
+        currentTime = engine.currentTime
+        onPlaybackInterrupted?()
     }
 }
 
@@ -220,16 +233,41 @@ final class SpectrumAnalyzer: @unchecked Sendable {
 
 // MARK: - Audio Engine
 
+/// Owns the AVAudioEngine graph. Resilient to the system output device
+/// changing underneath it (AirPods hopping to another device, headphones
+/// unplugged, sample-rate changes):
+///
+/// - On `AVAudioEngineConfigurationChange` the engine's graph is torn down by
+///   the framework, but on macOS `engine.isRunning` may still report true.
+///   Touching the player node in that state blocks on a dead render thread.
+///   We therefore never trust `isRunning` after a stop: any stop marks the
+///   graph dirty and the next `play()` rebuilds connections before starting.
+/// - Pausing stops IO entirely rather than idling the output unit, so resume
+///   is a fresh hardware start. That start is what macOS keys AirPods
+///   automatic switching on; a continuously-open silent output never
+///   re-triggers it.
 private final class AudioEngine {
     private let engine = AVAudioEngine()
     private let playerNode = AVAudioPlayerNode()
     private let spectrumAnalyzer = SpectrumAnalyzer()
     private var audioFile: AVAudioFile?
+    private var configObserver: NSObjectProtocol?
+
+    /// First frame of the currently scheduled segment.
     private var seekFrame: AVAudioFramePosition = 0
+    /// Last observed absolute position; equals `seekFrame` while not playing.
+    /// Survives the engine dying, which makes `playerNode.lastRenderTime` nil.
+    private var lastKnownFrame: AVAudioFramePosition = 0
     private var needsSchedule = true
+    private var graphNeedsRebuild = true
     private var completionToken = 0
 
+    private(set) var isPlaying = false
+
     var onFinished: (() -> Void)?
+    /// Playback stopped for a reason other than user action or end of track
+    /// (e.g. the engine could not be restarted after an output device change).
+    var onInterrupted: (() -> Void)?
 
     var duration: TimeInterval {
         guard let file = audioFile else { return 0 }
@@ -237,13 +275,8 @@ private final class AudioEngine {
     }
 
     var currentTime: TimeInterval {
-        guard let nodeTime = playerNode.lastRenderTime,
-              nodeTime.isSampleTimeValid,
-              let playerTime = playerNode.playerTime(forNodeTime: nodeTime) else {
-            return Double(seekFrame) / (audioFile?.processingFormat.sampleRate ?? 44100)
-        }
-        let frames = seekFrame + playerTime.sampleTime
-        return max(0, Double(frames) / playerTime.sampleRate)
+        guard let file = audioFile else { return 0 }
+        return Double(currentFrame()) / file.processingFormat.sampleRate
     }
 
     var volume: Float = 1.0 {
@@ -252,40 +285,42 @@ private final class AudioEngine {
 
     init() {
         engine.attach(playerNode)
+        configObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange,
+            object: engine,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleConfigurationChange()
+        }
+    }
+
+    deinit {
+        if let configObserver {
+            NotificationCenter.default.removeObserver(configObserver)
+        }
     }
 
     func load(_ url: URL) throws {
-        completionToken += 1
-        playerNode.stop()
-        engine.mainMixerNode.removeTap(onBus: 0)
-
-        if engine.isRunning {
-            engine.stop()
-        }
-
+        haltPlayback()
         audioFile = try AVAudioFile(forReading: url)
-        guard let file = audioFile else { return }
-
-        engine.disconnectNodeOutput(playerNode)
-        engine.connect(playerNode, to: engine.mainMixerNode, format: file.processingFormat)
-        engine.mainMixerNode.outputVolume = volume
-
-        installTap()
-        engine.prepare()
-
-        seekFrame = 0
-        needsSchedule = true
+        setPosition(0)
     }
 
-    func play() {
-        guard audioFile != nil else { return }
+    /// Returns false if the engine could not be started; state is left paused.
+    @discardableResult
+    func play() -> Bool {
+        guard audioFile != nil else { return false }
 
+        if graphNeedsRebuild {
+            rebuildGraph()
+        }
         if !engine.isRunning {
             do {
                 try engine.start()
             } catch {
                 print("Failed to start audio engine: \(error)")
-                return
+                graphNeedsRebuild = true
+                return false
             }
         }
 
@@ -295,45 +330,34 @@ private final class AudioEngine {
         }
 
         playerNode.play()
+        isPlaying = true
+        return true
     }
 
     func pause() {
-        // Capture current position before pausing so seek-while-paused works.
-        // After pause, playerTime still resolves because the schedule remains,
-        // but saving the frame here makes the position available even if the
-        // engine is later stopped (e.g. on load).
-        if let nodeTime = playerNode.lastRenderTime,
-           nodeTime.isSampleTimeValid,
-           let playerTime = playerNode.playerTime(forNodeTime: nodeTime) {
-            seekFrame = seekFrame + playerTime.sampleTime
-        }
-        completionToken += 1
-        playerNode.stop()
-        needsSchedule = true
+        let frame = currentFrame()
+        haltPlayback()
+        setPosition(frame)
     }
 
     func stop() {
-        completionToken += 1
-        playerNode.stop()
-        seekFrame = 0
-        needsSchedule = true
+        haltPlayback()
+        setPosition(0)
     }
 
     func seek(to time: TimeInterval) {
         guard let file = audioFile else { return }
-        let wasPlaying = playerNode.isPlaying
+        let wasPlaying = isPlaying
 
         completionToken += 1
+        isPlaying = false
         playerNode.stop()
 
-        seekFrame = AVAudioFramePosition(time * file.processingFormat.sampleRate)
-        seekFrame = max(0, min(seekFrame, file.length))
-        needsSchedule = true
+        let frame = AVAudioFramePosition(time * file.processingFormat.sampleRate)
+        setPosition(max(0, min(frame, file.length)))
 
-        if wasPlaying {
-            scheduleSegment(from: seekFrame)
-            needsSchedule = false
-            playerNode.play()
+        if wasPlaying, !play() {
+            onInterrupted?()
         }
     }
 
@@ -342,6 +366,64 @@ private final class AudioEngine {
     }
 
     // MARK: - Private
+
+    private func handleConfigurationChange() {
+        let wasPlaying = isPlaying
+        let frame = currentFrame()
+        haltPlayback()
+        setPosition(frame)
+
+        guard wasPlaying else { return }
+        if !play() {
+            onInterrupted?()
+        }
+    }
+
+    /// Stops IO and the player node, invalidates pending completions, and
+    /// marks the graph for rebuild. Engine is stopped first: once the output
+    /// unit is down the player node cannot block waiting on a render cycle.
+    private func haltPlayback() {
+        completionToken += 1
+        isPlaying = false
+        engine.stop()
+        playerNode.stop()
+        needsSchedule = true
+        graphNeedsRebuild = true
+    }
+
+    private func setPosition(_ frame: AVAudioFramePosition) {
+        seekFrame = frame
+        lastKnownFrame = frame
+        needsSchedule = true
+    }
+
+    private func currentFrame() -> AVAudioFramePosition {
+        guard isPlaying,
+              let file = audioFile,
+              let nodeTime = playerNode.lastRenderTime,
+              nodeTime.isSampleTimeValid,
+              let playerTime = playerNode.playerTime(forNodeTime: nodeTime) else {
+            return lastKnownFrame
+        }
+        // playerTime is in the player's output format, i.e. file.processingFormat.
+        lastKnownFrame = max(0, min(file.length, seekFrame + playerTime.sampleTime))
+        return lastKnownFrame
+    }
+
+    /// Reconnects the player to the mixer and reinstalls the analysis tap.
+    /// Must be called with the engine stopped. The mixer's output format is
+    /// resolved against the *current* output device, so a stale tap or
+    /// connection from a previous device never survives.
+    private func rebuildGraph() {
+        guard let file = audioFile else { return }
+        engine.mainMixerNode.removeTap(onBus: 0)
+        engine.disconnectNodeOutput(playerNode)
+        engine.connect(playerNode, to: engine.mainMixerNode, format: file.processingFormat)
+        engine.mainMixerNode.outputVolume = volume
+        installTap()
+        engine.prepare()
+        graphNeedsRebuild = false
+    }
 
     private func scheduleSegment(from frame: AVAudioFramePosition) {
         guard let file = audioFile else { return }
@@ -359,23 +441,20 @@ private final class AudioEngine {
         ) { [weak self] _ in
             DispatchQueue.main.async {
                 guard let self, self.completionToken == token else { return }
-                self.needsSchedule = true
+                self.isPlaying = false
+                self.setPosition(file.length)
                 self.onFinished?()
             }
         }
     }
 
     private func installTap() {
-        let format = engine.mainMixerNode.outputFormat(forBus: 0)
         let analyzer = spectrumAnalyzer
-        let sampleRate = Float(format.sampleRate)
-
-        engine.mainMixerNode.installTap(
-            onBus: 0,
-            bufferSize: 1024,
-            format: format
-        ) { buffer, _ in
-            analyzer.process(buffer, sampleRate: sampleRate)
+        // format: nil → tap follows whatever the mixer currently outputs. A
+        // fixed format captured at load time would mismatch after a device
+        // with a different sample rate becomes the output.
+        engine.mainMixerNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { buffer, _ in
+            analyzer.process(buffer, sampleRate: Float(buffer.format.sampleRate))
         }
     }
 }
